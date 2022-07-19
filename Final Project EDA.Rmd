@@ -1,0 +1,263 @@
+---
+title: "Final Project EDA"
+author: "Akwellé (Q) Quaye"
+date: '2022-07-11'
+output: html_document
+---
+
+#Load county rankings data
+
+```{r}
+library(tidyverse)
+rankings_data <- read_csv("//Users/Akwelle/Desktop/SURE 22/surefinalproject/RankedMeasureData.csv", col_names = TRUE)
+```
+
+
+#Cleaning county rankings data
+
+```{r}
+#removing confidence interval information
+rankings_data <- rankings_data %>%
+  select(-contains("CI"))
+
+#removing quartile information
+rankings_data <- rankings_data %>%
+  select(-contains("Quartile"))
+
+#removing counties with unreliable data
+rankings_data <- rankings_data %>%
+  filter(is.na(Unreliable))
+
+#removing "unreliable" column
+rankings_data <- rankings_data %>%
+  select(-contains("Unreliable"))
+
+#changing FIPS to a categorical variable
+rankings_data$FIPS <- as.factor(rankings_data$FIPS)
+
+#Editing column names for "Population" to match accordingly
+colnames(rankings_data)[57] <- "Adults 25 and Over"
+colnames(rankings_data)[60] <- "Adults 25-44"
+
+```
+
+# PURPOSE: EDA for county rankings data--------
+
+#scatterplot of % completed high school v. % excessive drinking
+
+```{r}
+head(rankings_data)
+
+rankings_data %>%
+  ggplot(aes(x = `% Completed High School`, y=`% Excessive Drinking`)) +
+  geom_point(alpha = 0.3) +
+  theme_minimal()
+  
+```
+
+#scatterplot of mental health provider rate and % of excessive drinking
+
+```{r}
+head(rankings_data)
+
+rankings_data %>%
+  ggplot(aes(x = `Mental Health Provider Rate`, y=log(`% Excessive Drinking`))) +
+  geom_point(alpha = 0.3) +
+  theme_minimal()
+```
+# scatterplot of % severe housing problems v. % excessive drinking
+
+```{r}
+head(rankings_data)
+
+rankings_data %>%
+  ggplot(aes(x = `% Severe Housing Problems`, y=`% Excessive Drinking`)) +
+  geom_point(alpha = 0.3) +
+  theme_minimal()
+```
+
+
+# PURPOSE: PCA to determine which variables are significant to determining % of alcohol-involved driving deaths ============
+
+# Step 1: Removing categorical and NA data
+
+```{r}
+#removing categorical data
+rankings_numeric <- rankings_data %>%
+  select(-c(FIPS, State, County))
+
+# removing ratios data
+rankings_numeric <- rankings_numeric %>%
+  select(-`Mental Health Provider Ratio` & -`Dentist Ratio`)
+
+#transforming yes/no into 1 and 0
+rankings_numeric$`Presence of Water Violation` <- ifelse(rankings_numeric$`Presence of Water Violation` == "Yes", 1, 0)
+
+#removing race information (not relevant to PCA)
+rankings_numeric_clean <- rankings_numeric %>%
+  select(-contains("Asian") & -contains("AIAN") & -contains("Hispanic") & -contains("Black") & -contains("white"))
+
+
+```
+
+# Step 2: Run PCA
+
+```{r}
+
+rankings_numeric_clean <- rankings_numeric_clean %>% 
+  mutate_all(~ifelse(is.na(.x), mean(.x, na.rm = TRUE), .x))  
+
+
+### standard regression ###
+simple = lm(`# Alcohol-Impaired Driving Deaths` ~ ., data = rankings_numeric_clean)
+summary(simple)
+
+plot(x = rankings_numeric_clean$`% Excessive Drinking`,
+     y = rankings_numeric_clean$`# Alcohol-Impaired Driving Deaths`)
+
+plot(x = rankings_numeric_clean$`% Driving Deaths with Alcohol Involvement`,
+     y = rankings_numeric_clean$`# Alcohol-Impaired Driving Deaths`)
+
+plot(x = rankings_numeric_clean$`# Driving Deaths`,
+     y = rankings_numeric_clean$`# Alcohol-Impaired Driving Deaths`)
+
+ix = sort(rankings_numeric_clean$`# Driving Deaths`, decreasing=TRUE,
+          index.return = TRUE)$ix[-c(1:3)]
+plot(x = rankings_numeric_clean$`# Driving Deaths`[ix],
+     y = rankings_numeric_clean$`# Alcohol-Impaired Driving Deaths`[ix])
+
+single = lm(`# Alcohol-Impaired Driving Deaths` ~ `# Driving Deaths`, data = rankings_numeric_clean)
+summary(single)
+
+hist(rankings_numeric_clean$`# Alcohol-Impaired Driving Deaths`/
+     rankings_numeric_clean$`# Driving Deaths`)
+
+```
+
+```{r}
+
+### pca ###
+rankings_pca <- prcomp(rankings_numeric_clean, center = TRUE, scale=TRUE)
+summary(rankings_pca)
+
+
+
+#####
+rankings_numeric_clean <- rankings_numeric_clean %>% 
+  mutate_all(~ifelse(is.na(.x), mean(.x, na.rm = TRUE), .x))  
+
+
+ix = which(colnames(rankings_numeric_clean) == "# Alcohol-Impaired Driving Deaths")
+x = rankings_numeric_clean[,-ix]
+rankings_pca <- prcomp(x, center = TRUE, scale=TRUE)
+summary(rankings_pca)
+
+pca_x = data.frame(rankings_pca$x)
+pca_data = pca_x
+pca_data$`Alcohol_Impaired_Driving_Deaths` = rankings_numeric_clean$`# Alcohol-Impaired Driving Deaths`
+full = lm(Alcohol_Impaired_Driving_Deaths ~ ., data = pca_data)
+summary(full)
+bic_result <- step(full, trace  =FALSE,
+     direction = "backward", criterion = "BIC", k = log(dim(pca_data)[1]))
+
+
+
+```
+
+#Step 3: Analyze PCA
+
+```{r}
+library(factoextra)
+
+
+#scree plot 
+fviz_eig(rankings_pca) #based off of this, I've determined we only need the first three principal components
+
+#variables
+fviz_pca_var(rankings_pca) #note that two PCAs are responsible for 57.2% of the variance
+
+#eigenvalues
+eig_rankings <- get_eigenvalue(rankings_pca)
+eig_rankings #based on this, the first 9 PCAs should be used
+```
+# Analysis of PC 1
+
+```{r}
+pc1_contribution <- fviz_contrib(rankings_pca, "var", axes=1, xtickslab.rt=45)
+
+plot(pc1_contribution)
+```
+
+# Analysis of PC 2
+```{r}
+pc2_contribution <- fviz_contrib(rankings_pca, "var", axes=2, xtickslab.rt=45)
+
+plot(pc2_contribution)
+```
+
+# Analysis of PC 3
+```{r}
+pc3_contribution <- fviz_contrib(rankings_pca, "var", axes=3, xtickslab.rt=45)
+
+plot(pc3_contribution)
+```
+
+
+
+# Step 4: Clustering
+
+```{r}
+#silhouette analysis to determine the # of clusters
+
+fviz_nbclust(rankings_pca$x, FUNcluster = kmeans, k.max=10)
+
+#conducting clustering
+
+eclust(rankings_pca$x, "kmeans", hc_metric="euclidean", k=3)
+```
+
+# Step 5: PCR
+
+```{r}
+library(pls)
+set.seed(2000)
+
+rankings_pcr = pcr(`# Alcohol-Impaired Driving Deaths`~., data = rankings_numeric_clean, scale=TRUE, validation = "CV")
+
+
+
+#validation plot
+validationplot(rankings_pcr, val.type = "MSEP")
+
+#split data into train and test sets of data 
+
+rankings_train <- rankings_numeric_clean()
+```
+
+
+
+# Step 6: Lasso Regression
+```{r}
+set.seed(2000)
+library(glmnet)
+
+model_x <- rankings_numeric_clean %>%
+  select(-``)
+  
+
+fit_lasso_cv <- cv.glmnet(model_x, model_y, 
+                          alpha = 1)
+tidy_lasso_coef <- tidy(fit_lasso_cv$glmnet.fit)
+tidy_lasso_coef %>%
+  ggplot(aes(x = lambda, y = estimate, 
+             group = term)) +
+  scale_x_log10() +
+  geom_line(alpha = 0.75) +
+  geom_vline(xintercept = 
+               fit_lasso_cv$lambda.min) +
+  geom_vline(xintercept = 
+               fit_lasso_cv$lambda.1se, 
+             linetype = "dashed", color = "red") +
+  theme_bw()
+
+```
