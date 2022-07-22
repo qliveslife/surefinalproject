@@ -1,0 +1,435 @@
+---
+title: "Predicting Factors that Lead to Drug and Alcohol Abuse"
+author: "Akwellé (Q) Quaye, Andre Williams, Makayla Moore"
+date: '2022-07-22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduction
+
+Substance abuse is a very complicated issue. There are so many factors that lead to substance abuse. We looked at three different questions, two in which drug and alcohol abuse are the response variables, and one in which drug and alcohol abuse are used as predictors for another response variables. These three questions are detailed below.
+
+### Predictors of Alcohol-Related Driving Incidents
+
+One of the most dangerous consequences of excessive drinking are accidents caused by people driving under the influence of alcohol. Every day, about 32 people die in drunk-driving incidents (National Highway Traffic Safety Administration). As the County Health Rankings Dataset contained information on the number of people killed in alcohol-related driving incidents, as well as a variety of other indicators of health behaviors and quality of life, we were curious as to if any of the variables provided, or combinations of these variables, could be predictors of alcohol-related driving incidents.
+
+### Predictors of Drug Overdose 
+
+In 2021, there was a 28.5% increase in drug overdoses in the United States from the previous year (CDC). Which places in the United States had the highest rates of drug overdose deaths, and what are some characteristics of these places? We wanted to look at health behaviors and quality of life factors as well as socioeconomic factors for this section.
+
+### Drug Abuse and Teen Births
+
+There are a variety of factors that can lead to teen births. Is excessive drinking and drug use one of these factors? We wanted to look at whether or not drug and alcohol abuse is correlated with teen births, or if other factors not related to excessive drinking and drug are better predictors than teen births alone.
+
+## Data
+
+In order to answer our questions, we looked at a variety of datasets.
+
+### County Health Rankings Dataset
+
+The County Health Rankings dataset, collected by the University of Wisconsin Population Health Institute, ranks every county in a given state on their Health Outcomes and Health Factors. This dataset also contains the measurements used to calculate the rankings for each county. We primarily focused on the measurements used to calculate the rankings, a table with 3,193 observations of 249 different variables.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+rankings_data_unclean <- read_csv("//Users/Akwelle/Desktop/SURE 22/surefinalproject/RankedMeasureData.csv", col_names = TRUE)
+
+head(rankings_data_unclean)
+
+```
+
+### Median Household Income by State
+
+The World Population Review published a dataset with with the median household incomes for each state in the United States, for the year 2022. There are 50 observations with two variables: State and Median Household Income.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+income <- read.csv("/Users/Akwelle/Downloads/MedianHouseholdIncome.csv")
+
+head(income)
+
+```
+
+### 12 Month-ending Provisional Number and Percent Change of Drug Overdose Deaths
+
+The National Vital Statistics System from the CDC published provisional counts for drug overdoses caused by a variety of different drugs, by state, for each month between January 2015 and February 2022. There were 50,052 observations of 12 variables over the years, but the variables of interest we used were state and total deaths.
+
+```{r}
+d3 <- read.csv("/Users/Akwelle/Downloads/Drug-Alcohol-Overdose-Deaths.csv")
+head(d3)
+```
+
+## Methods
+
+### Predictors of Alcohol-Related Driving Deaths
+
+After cleaning the County Health Ranking Dataset to build models with this specific dataset, we were left with 52 different variables, as shown below:
+
+```{r, echo=FALSE, warning = FALSE, message=FALSE}
+#removing confidence interval information
+rankings_data <- rankings_data_unclean %>%
+  select(-contains("CI"))
+
+#removing quartile information
+rankings_data <- rankings_data %>%
+  select(-contains("Quartile"))
+
+#removing counties with unreliable data
+rankings_data <- rankings_data %>%
+  filter(is.na(Unreliable))
+
+#removing "unreliable" column
+rankings_data <- rankings_data %>%
+  select(-contains("Unreliable"))
+
+#changing FIPS to a categorical variable
+rankings_data$FIPS <- as.factor(rankings_data$FIPS)
+
+#Editing column names for "Population" to match accordingly
+colnames(rankings_data)[57] <- "Adults 25 and Over"
+colnames(rankings_data)[60] <- "Adults 25-44"
+
+#removing categorical data
+rankings_numeric <- rankings_data %>%
+  select(-c(FIPS, State, County))
+
+# removing ratios data
+rankings_numeric <- rankings_numeric %>%
+  select(-`Mental Health Provider Ratio` & -`Dentist Ratio`)
+
+#transforming yes/no into 1 and 0
+rankings_numeric$`Presence of Water Violation` <- ifelse(rankings_numeric$`Presence of Water Violation` == "Yes", 1, 0)
+
+#removing race information (not relevant to PCA)
+rankings_numeric_clean <- rankings_numeric %>%
+  select(-contains("Asian") & -contains("AIAN") & -contains("Hispanic") & -contains("Black") & -contains("white"))
+
+#removing the column `# of Driving Deaths`
+
+rankings_numeric_clean <- rankings_numeric_clean %>%
+  select(-`# Driving Deaths`)
+
+head(rankings_numeric_clean)
+```
+
+Looking at Alcohol-Related Driving Deaths plotted against other variables in the County Health Rankings Dataset, there was no clear linear relationship present, except for the relationship between Alcohol-Related Driving Deaths and Driving Deaths, which was highly correlated, and therefore removed from the dataset. Because there were over 50 variables, we decided that we would run a principal component analysis (PCA), and then regress on these variables to create a combination of the variables. After running the PCA, we produced a scree plot that showed that the first three principal components together explain about 63.7% of the variability in the data, therefore any model built with the principal components should be built with the first principal components.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(factoextra)
+
+rankings_numeric_clean <- rankings_numeric_clean %>% 
+  mutate_all(~ifelse(is.na(.x), mean(.x, na.rm = TRUE), .x))  
+
+
+
+rankings_pca <- prcomp(rankings_numeric_clean, center = TRUE, scale=TRUE)
+
+
+fviz_eig(rankings_pca)
+
+```
+
+Once that was done, we realized that the principal component regression is not very interpretable, so we decided to use lasso regression to select certain variables that the model deemed specific, compared the model to prove whether or not the interpretability of a model meant a loss in accuracy, in this specific case. 
+
+(Note: Lasso regression is still being worked on, and will be in the final project and presentation)
+
+### Predictors of Drug Overdose 
+
+Looking at this US map, we can see the total deaths caused by drug overdoses in each state.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+d3 <- read.csv("/Users/Akwelle/Downloads/Drug-Alcohol-Overdose-Deaths.csv")
+county_rankings <- read.csv("/Users/Akwelle/Downloads/county_rankings.csv")
+income <- read.csv("/Users/Akwelle/Downloads/MedianHouseholdIncome.csv")
+
+
+d3$Data.Value <- as.integer(gsub(",", "", d3$Data.Value))
+d3 <- d3 %>%
+  arrange(State) %>%
+  filter(Year %in% "2019",
+         Indicator %in% "Number of Drug Overdose Deaths",
+         !State %in% c("DC", "YC")) %>%
+  select(State, Indicator, Data.Value) %>%
+  group_by(State) %>%
+  summarise(total_deaths = sum(Data.Value)) %>%
+  mutate(Total.deaths.raw.value = (total_deaths / 822382) * 100) %>%
+  filter(!State %in% "US")
+colnames(d3)[1] <- 'state'
+
+county_rankings <- county_rankings %>%
+  arrange(State.Abbreviation) %>%
+  filter(County.FIPS.Code %in% 0,
+         !State.Abbreviation %in% c("US", "DC")) %>%
+  select(State.Abbreviation, Unemployment.raw.value, Some.college.raw.value, High.school.completion.raw.value) %>%
+  mutate(Unemployment.raw.value = (Unemployment.raw.value * 100),
+         High.school.completion.raw.value = (High.school.completion.raw.value * 100),
+         Some.college.raw.value = (Some.college.raw.value * 100))
+colnames(county_rankings)[1] <- 'state'
+
+colnames(income)[1] <- 'state'
+income <- income %>%
+  mutate(state = fct_recode(state,
+                            "MD" = "Maryland",
+                            "NJ" = "New Jersey",
+                            "HI" = "Hawaii",
+                            "MA" = "Massachusetts",
+                            "CT" = "Connecticut",
+                            "AK" = "Alaska",
+                            "NH" = "New Hampshire",
+                            "CA" = "California",
+                            "VA" = "Virginia",
+                            "WA" = "Washington",
+                            "CO" = "Colorado",
+                            "UT" = "Utah",
+                            "MN" = "Minnesota",
+                            "NY" = "New York",
+                            "DE" = "Delaware",
+                            "RI" = "Rhode Island",
+                            "IL" = "Illinois",
+                            "ND" = "North Dakota",
+                            "WY" = "Wyoming",
+                            "OR" = "Oregon",
+                            "VT" = "Vermont",
+                            "TX" = "Texas",
+                            "WI" = "Wisconsin",
+                            "PA" = "Pennsylvania",
+                            "NE" = "Nebraska",
+                            "IA" = "Iowa",
+                            "NV" = "Nevada",
+                            "KS" = "Kansas",
+                            "AZ" = "Arizona",
+                            "GA" = "Georgia",
+                            "SD" = "South Dakota",
+                            "ME" = "Maine",
+                            "MI" = "Michigan",
+                            "OH" = "Ohio",
+                            "IN" = "Indiana",
+                            "ID" = "Idaho",
+                            "FL" = "Florida",
+                            "MO" = "Missouri",
+                            "MT" = "Montana",
+                            "NC" = "North Carolina",
+                            "TN" = "Tennessee",
+                            "SC" = "South Carolina",
+                            "OK" = "Oklahoma",
+                            "KY" = "Kentucky",
+                            "AL" = "Alabama",
+                            "NM" = "New Mexico",
+                            "LA" = "Louisiana",
+                            "AR" = "Arkansas",
+                            "WV" = "West Virginia",
+                            "MS" = "Mississippi"))
+
+library(dplyr)
+first <- dplyr::left_join(x = d3, y = county_rankings, by = 'state')
+combined <- dplyr::left_join(x = first, y = income, by = 'state')
+
+library(usmap)
+library(ggplot2)
+plot_usmap(data = combined, values = "total_deaths", color = "red") + 
+  scale_fill_continuous(low = "yellow", high = "darkred", name = "Total Deaths", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+Here, we can see that California and Florida have the highest total drug overdose deaths of all the states. We can also see that Texas and Ohio also have high drug overdose deaths From this, we decided to look at the most common drug that caused overdose in California, Florida, Ohio, and Texas.
+
+```{r echo=FALSE}
+d3 <- read.csv("/Users/Akwelle/Downloads/Drug-Alcohol-Overdose-Deaths.csv")
+d3$Data.Value <- as.integer(gsub(",", "", d3$Data.Value))
+d3 <- d3 %>%
+  arrange(desc(Data.Value)) %>%
+  filter(Year %in% "2019",
+         !Indicator %in% c("Percent with drugs specified", "Number of Deaths",
+                        "Number of Drug Overdose Deaths"),
+         State %in% "CA") %>%
+  select(State, Indicator, Data.Value)
+head(d3, 3)
+```
+
+
+```{r echo=FALSE}
+d3 <- read.csv("/Users/Akwelle/Downloads/Drug-Alcohol-Overdose-Deaths.csv")
+d3$Data.Value <- as.integer(gsub(",", "", d3$Data.Value))
+d3 <- d3 %>%
+  arrange(desc(Data.Value)) %>%
+  filter(Year %in% "2019",
+         !Indicator %in% c("Percent with drugs specified", "Number of Deaths",
+                        "Number of Drug Overdose Deaths"),
+         State %in% "FL") %>%
+  select(State, Indicator, Data.Value)
+head(d3, 3)
+```
+
+
+```{r echo=FALSE}
+d3 <- read.csv("/Users/Akwelle/Downloads/Drug-Alcohol-Overdose-Deaths.csv")
+d3$Data.Value <- as.integer(gsub(",", "", d3$Data.Value))
+d3 <- d3 %>%
+  arrange(desc(Data.Value)) %>%
+  filter(Year %in% "2019",
+         !Indicator %in% c("Percent with drugs specified", "Number of Deaths",
+                        "Number of Drug Overdose Deaths"),
+         State %in% "TX") %>%
+  select(State, Indicator, Data.Value)
+head(d3, 3)
+```
+
+
+```{r echo=FALSE}
+d3 <- read.csv("/Users/Akwelle/Downloads/Drug-Alcohol-Overdose-Deaths.csv")
+d3$Data.Value <- as.integer(gsub(",", "", d3$Data.Value))
+d3 <- d3 %>%
+  arrange(desc(Data.Value)) %>%
+  filter(Year %in% "2019",
+         !Indicator %in% c("Percent with drugs specified", "Number of Deaths",
+                           "Number of Drug Overdose Deaths"),
+         State %in% "OH") %>%
+  select(State, Indicator, Data.Value)
+head(d3, 3)
+```
+
+Based on this information, we decided the best way to look at the data was via clustering, in order to further detect patterns in the data. We used k-means clustering and model-based clustering.
+
+### Drug Abuse and Teen Births
+
+We also decided to do a PCA on the County Health Rankings Dataset to answer the questions pertaining to drug abuse and teen births. Then, we did a simple linear regression to regress teen births against excessive drinking and smoking adults, to see if these specific behaviors had any relationships with the number of teen births in a specific county.
+
+## Results
+
+### Predictors of Alcohol-Related Driving Deaths
+
+After running the PCR, it was shown that the number of components that gave us the smallest mean squared error was 32 principal components, although the PCA indicated we should only use three principal components. 
+
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+
+library(pls)
+set.seed(2000)
+
+rankings_pcr = pcr(`# Alcohol-Impaired Driving Deaths`~., data = rankings_numeric_clean, scale=TRUE, validation = "CV")
+
+
+
+#validation plot
+validationplot(rankings_pcr, val.type = "MSEP")
+
+#split data into train and test sets of data
+
+split <- sort(sample(nrow(rankings_numeric_clean), nrow(rankings_numeric_clean)*.5))
+train <- rankings_numeric_clean[split,]
+test <- rankings_numeric_clean[-split,]
+
+dui_death_test <- test$`# Alcohol-Impaired Driving Deaths`
+
+#test model on new dataset
+
+pcr_pred <- predict(rankings_pcr, test, ncomp = 32)
+
+
+sqrt(mean((pcr_pred - dui_death_test)^2))
+
+
+
+```
+
+After running the model using a test set of data, it was shown that the root mean squared error (RMSE) was 44.16327.
+
+In comparison, (talk about performance of lasso regression here)
+
+### Predictors of Drug Overdose 
+
+After standardizing the variables, we clustered the data to display the relationship between total drug overdoses and three different socioeconomic factors: high school completion, unemployment, and some college experience, as showcased below:
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+combined <- combined %>%
+  mutate(std_death = as.numeric(scale(total_deaths, center = TRUE, scale = TRUE)),
+         std_unemploy = as.numeric(scale(Unemployment.raw.value, center = TRUE, scale = TRUE)),
+         std_hs = as.numeric(scale(High.school.completion.raw.value, center = TRUE, scale = TRUE)),
+         std_college = as.numeric(scale(Some.college.raw.value, center = TRUE, scale = TRUE)))
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+std_kmeans <- 
+  kmeans(dplyr::select(combined, std_death, std_unemploy),
+         algorithm = "Lloyd", centers = 4, nstart = 1)
+combined %>%
+  mutate(state_clusters = 
+           as.factor(std_kmeans$cluster)) %>%
+  ggplot(aes(x = std_death, y = std_unemploy,
+             color = state_clusters)) +
+  geom_point() + 
+  ggthemes::scale_color_colorblind() +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  coord_fixed()
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+std_kmeans <- 
+  kmeans(dplyr::select(combined, std_death, std_hs),
+         algorithm = "Lloyd", centers = 4, nstart = 1)
+combined %>%
+  mutate(state_clusters = 
+           as.factor(std_kmeans$cluster)) %>%
+  ggplot(aes(x = std_death, y = std_hs,
+             color = state_clusters)) +
+  geom_point() + 
+  ggthemes::scale_color_colorblind() +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  coord_fixed()
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+std_kmeans <- 
+  kmeans(dplyr::select(combined, std_death, std_college),
+         algorithm = "Lloyd", centers = 4, nstart = 1)
+combined %>%
+  mutate(state_clusters = 
+           as.factor(std_kmeans$cluster)) %>%
+  ggplot(aes(x = std_death, y = std_college,
+             color = state_clusters)) +
+  geom_point() + 
+  ggthemes::scale_color_colorblind() +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  coord_fixed()
+```
+
+
+
+
+### Drug Abuse and Teen Births
+
+(soon to come)
+
+## Discussion
+
+### Predictors of Alcohol-Related Driving Incidents
+
+The principal components regression did a decent job of predicting the alcohol-related driving incidents, but it is difficult to interpret. In addition, we had to use 32 principal components. Although this is a dimension reduction from the 52 variables we started with initially, there are still a lot of variables in the set.
+
+(Discussion of lasso regression here)
+
+### Predictions of Drug Overdose
+
+Based on the clustering, we discovered that drug overdose deaths tend to occur more in states with a lower unemployment rate, higher college experience, and higher high school completion rate. We also discovered that opioids were the most used substance in drug overdose deaths.
+
+With this information, we want to look further into areas where opioid usage is more common, and see if opioids have different effects on specific racial and age groups.
+
+Based on the work achieved so far, we believe that more can be done in terms of finding a unique solution to the issue.
+
+### Drug Abuse and Teen Births
+
+(soon to come)
+
+## Acknowledgements
+
+We want to thank Dr. Ron Yurko, our professor during this summer, as well as Wanshan Li, YJ Choe, and all the other TAs for supporting us through this journey. We would also like to thank everyone in the Carnegie Mellon Statistics department who supported the SURE 2022 program. Thanks to Danita Kiser and everyone in Optum who advised us, including our guest speakers and our mentors, [insert mentor names here]. 
+
+
+## References
+
+(references soon to come)
